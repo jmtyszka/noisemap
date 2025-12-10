@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "noisemap"
+version = "2025.12.9"
+description = "Homomorphic SENSE noise estimation toolbox for Python"
+authors = [
+    { name = "Mike Tyszka", email = "jmt@caltech.edu" }
+    { name = "Mike Tyszka", email = "jmt@caltech.edu" }
+]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "scipy",
+    "matplotlib"
+]
+
+[project.urls]
+Homepage = "https://github.com/jmtyszka/noisemap"
+Repository = "https://github.com/jmtyszka/noisemap"

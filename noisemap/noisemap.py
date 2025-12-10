@@ -18,6 +18,13 @@ class NoiseMap:
         # Init noise and SNR maps
         self.img_sigma_n_lpf = None
         self.img_snr_lpf = None
+        
+        # Default estimation method
+        self.estimation_method = 'homomorphic'
+
+        # --------
+        # Aja-Fernandez homomorphic noise estimation parameters
+        # --------
 
         # Low pass filter Gaussian sigma
         self.sigma_lpf = 4.8
@@ -125,22 +132,21 @@ class NoiseMap:
 
         return Fc
     
-    def lpf(self, img):
+    def lpf(self, img: np.ndarray) -> np.ndarray:
 
         """
-        Apply low-pass Gaussian filter to the image.
-        img: input image (2D array)
+        Apply low-pass Gaussian filter to a numpy image
+        img: input image (3D array)
         Returns: filtered image
         """
         return gaussian_filter(img, sigma=self.sigma_lpf)
 
-    def rice_homomorf_est(self, img_noisy, snr=None):
+    def rice_homomorf_est(self, img_noisy: np.ndarray, snr=None):
         """
         Noise estimation in SENSE MR using a homomorphic approach.
 
-        PARAMETER: img_noisy: noisy Rician data (2D array)
+        PARAMETER: img_noisy: noisy data (3D array)
         PARAMETER: snr: signal-to-noise ratio (optional, if None, estimated from data)
-        Returns: MapaR, MapaG
         """
         img_noisy = np.asarray(img_noisy, dtype=np.float64)
 
@@ -157,22 +163,30 @@ class NoiseMap:
         self.img_sigma_n_lpf = self.lpf(img_sigma_n)
         self.img_snr_lpf = self.lpf(img_snr)
 
-    def estimate(self, snr=None):
+    def estimate(self, snr=None, method=None):
         """
         Run noise estimation on the loaded Nifti image.
         SNR: signal-to-noise ratio (optional, if None, estimated from data)
-        Returns: MapaR, MapaG
+        method: estimation method (optional, default 'homomorphic')
         """
+
+        # Save estimation method for output file naming
+        if method is not None:
+            self.estimation_method = method
 
         # 3D scalar images only for now
         assert self.img.ndim == 3, "Input image must be 3D scalar"
         img3d = self.img
 
-        # Run homomorphic Rician noise estimation
-        self.rice_homomorf_est(img3d, snr=snr)
-
-        # Return estimated LPF sigma_n and SNR maps
-        return self.img_sigma_n_lpf, self.img_snr_lpf
+        match method:
+            case 'homomorphic':
+                # Run homomorphic Rician noise estimation
+                self.rice_homomorf_est(img3d, snr=snr)
+            case 'ANLM':
+                raise NotImplementedError("ANLM method not implemented yet")
+            case _:
+                raise ValueError(f"Unknown estimation method: {method}")
+            
     
     def save_maps(self, out_dir=None):
         """
@@ -181,16 +195,19 @@ class NoiseMap:
         """
 
         if out_dir is None:
-            out_dir = op.dirname(self.nifti_path)
+            # Save in same directory as input with method-specific subdirectory
+            out_dir = op.join(op.dirname(self.nifti_path), f"noisemap_{self.estimation_method}")
         
         # Safe create output directory if it doesn't exist
         os.makedirs(out_dir, exist_ok=True)
+
+        print(f"Saving noise and SNR maps to {out_dir}")
 
         # Save Sigma_n map
         sigma_n_nii = nib.Nifti1Image(self.img_sigma_n_lpf, affine=self.img_nii.affine, header=self.img_nii.header)
         sigma_n_path = op.join(out_dir, self.nifti_path.replace(".nii.gz", "_sigma.nii.gz"))
         nib.save(sigma_n_nii, sigma_n_path)
-        print(f"Saved Sigma_n map to {sigma_n_path}")
+        print(f"Saved noise sigma map to {sigma_n_path}")
 
         # Save SNR map
         snr_nii = nib.Nifti1Image(self.img_snr_lpf, affine=self.img_nii.affine, header=self.img_nii.header)

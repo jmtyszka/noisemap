@@ -4,10 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "noisemap"
-version = "2025.12.9"
-description = "Homomorphic SENSE noise estimation toolbox for Python"
+version = "2025.12.10"
+description = "Noise estimation for 3D magnitude MR images in Python"
 authors = [
-    { name = "Mike Tyszka", email = "jmt@caltech.edu" }
     { name = "Mike Tyszka", email = "jmt@caltech.edu" }
 ]
 readme = "README.md"
@@ -21,3 +20,6 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/jmtyszka/noisemap"
 Repository = "https://github.com/jmtyszka/noisemap"
+
+[project.scripts]
+noisemap = "noisemap.__main__:main"

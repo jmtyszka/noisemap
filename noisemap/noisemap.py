@@ -1,11 +1,18 @@
 """
-Two noise mapping algorithms for 3D magnitude MR images.
+Three denoising/noise estimation algorithms are implemented for 3D magnitude MR images.
+For denoising algorithms, the residual difference between noisy and denoised images is used to
+estimate local noise sigma maps and SNR maps using the local MAD approximation for Gaussian white noise.
+Rician noise modeling and corrections are used where possible.
 
 1. Homomorphic noise estimation for SENSE MR images in Python.
 Based on the method of Aja-Fernandez et al., "Noise estimation in SENSE MR images: The homomorphic approach", IEEE TMI, 2009.
 
-2. Adaptive Non-Local Means (ANLM) noise estimation for MR images.
+2. Adaptive Non-Local Means (ANLM) denoising for MR images.
 Based on the method of Manjon et al., "Adaptive non-local means denoising of MR images with spatially varying noise levels", JMRI, 2010.
+
+3. Adaptive Soft Matching (ASM) denoising for MR images.
+Based on the method of Pierrick Coupé, José V. Manjón, Montserrat Robles, and Louis D. Collins. Adaptive Multiresolution Non-Local Means
+Filter for 3D MR Image Denoising. IET Image Processing, 6(5):558–568, July 2012. implemented in the DiPy package.
 """
 
 import os
@@ -13,9 +20,12 @@ import os.path as op
 from networkx import sigma
 import numpy as np
 from scipy.special import iv
-from scipy.ndimage import (gaussian_filter, median_filter, convolve)
 import nibabel as nib
 import ants
+
+from homomorphic import rice_homomorphic_est
+from anlm import anlm_est
+from asm import asm_est
 
 class NoiseMap:
 
@@ -37,183 +47,7 @@ class NoiseMap:
         
         # Default estimation method
         self.estimation_method = 'homomorphic'
-
-        # --------
-        # Aja-Fernandez homomorphic noise estimation parameters
-        # --------
-
-        # Low pass filter Gaussian sigma
-        self.sigma_lpf = 5.0
-
-        # Coefficients for Rician-Gaussian correction polynomial
-        self.snr_coeffs = [
-            -0.289549906258443,
-            -0.0388922575606330,
-            0.409867108141953,
-            -0.355237628488567,
-            0.149328280945610,
-            -0.0357861117942093,
-            0.00497952893859122,
-            -0.000374756374477592,
-            1.18020229140092e-05
-        ]
-
-        # EM parameters
-        self.em_niter = 5
-        self.em_ksize = 3
-
-    #
-    # Homomorphic methods
-    #
-
-    @staticmethod
-    def approxI1_I0(z):
-        """
-        Approximate the ratio I1(z)/I0(z) for the modified Bessel functions.
-        Vectorized for numpy arrays.
-        """
-        z = np.asarray(z)
-        M = np.zeros_like(z, dtype=np.float64)
-        z8 = 8.0 * z
-        Mn = 1 - 3.0 / z8 - 15.0 / 2.0 / (z8 ** 2 + 1e-12) - (3 * 5 * 21) / 6.0 / (z8 ** 3 + 1e-12)
-        Md = 1 + 1.0 / z8 + 9.0 / 2.0 / (z8 ** 2 + 1e-12) + (25 * 9) / 6.0 / (z8 ** 3 + 1e-12)
-        M = Mn / (Md + 1e-12)
-        # For z < 1.5, use the true Bessel ratio
-        cont = z < 1.5
-        if np.any(cont):
-            M[cont] = iv(1, z[cont]) / iv(0, z[cont])
-        # For z == 0, set to 0
-        M[z == 0] = 0.0
-        return M
-    
-    @staticmethod
-    def conv3d(h, img):
-        """
-        3D convolution with nearest edge padding
-
-        parameter: img: input 3D image
-        parameter: h: 3D convolution kernel
-        returns: 3D convolved image
-        """
-        return convolve(img, h, mode='nearest')
-
-    def em_ml_rice3D(self, img):
-        """
-        EM implementation of Maximum Likelihood for Rician data (3D).
-
-        img: Input data (Rician image)
-        niter: Number of EM iterations
-        ksize: kernel size for local averaging (integer)
-        returns: img_denoised, img_sigma_n
-        """
-
-        niter = self.em_niter
-        ksize = self.em_ksize
-        h = np.ones((ksize, ksize, ksize)) / ksize**3
-
-        # Initialize a_k and sigma_k2
-        a_k = np.sqrt(np.sqrt(np.maximum(2 * self.conv3d(h, img**2)**2 - self.conv3d(h, img**4), 0)))
-        sigma_k2 = 0.5 * np.maximum(self.conv3d(h, img**2) - a_k**2, 0.01)
-        
-        for _ in range(niter):
-            a_k = np.maximum(self.conv3d(h, self.approxI1_I0(a_k * img / sigma_k2) * img), 0)
-            sigma_k2 = np.maximum(0.5 * self.conv3d(h, np.abs(img)**2) - a_k**2 / 2, 0.01)
-
-        img_denoised = a_k
-        img_sigma_n = np.sqrt(sigma_k2)
-
-        return img_denoised, img_sigma_n
-
-    def correct_rice_gauss(self, snr):
-        """
-        Rician-Gaussian correction for noise estimation
-
-        snr: signal SNR (scalar or array)
-        Returns: correction curve Fc
-        """
-        
-        snr = np.asarray(snr, dtype=np.float64)
-
-        c = self.snr_coeffs
-
-        Fc = (
-            c[0] +
-            c[1] * snr +
-            c[2] * snr**2 +
-            c[3] * snr**3 +
-            c[4] * snr**4 +
-            c[5] * snr**5 +
-            c[6] * snr**6 +
-            c[7] * snr**7 +
-            c[8] * snr**8
-        )
-        
-        Fc = Fc * (snr <= 7)
-
-        return Fc
-
-    def rice_homomorf_est(self, img_noisy: np.ndarray):
-        """
-        Noise estimation in SENSE MR using a homomorphic approach.
-
-        PARAMETER: img_noisy: 3D noisy magnitude data
-        """
-        img_noisy = self.img
-
-        # Estimate SNR from data using EM
-        img_denoised, img_sigma_n = self.em_ml_rice3D(img_noisy)
-        img_snr = img_denoised / (img_sigma_n + 1e-12)
-
-        # Apply low-pass filter to sigma_n and SNR maps
-        self.img_denoised = img_denoised
-        self.img_noise = img_noisy - img_denoised
-        self.img_sigma_n_lpf = self.lpf(img_sigma_n, sigma_lpf=self.sigma_lpf)
-        self.img_snr_lpf = self.lpf(img_snr, sigma_lpf=self.sigma_lpf)
-
-    #
-    # ANLM methods
-    #
-
-    def anlm_denoise(self, img_noisy: np.ndarray):
-
-        img_noisy = self.img
-
-        img_noise_ai = ants.from_numpy(img_noisy)
-
-        # Create a signal mask using Otsu thresholding
-        signal_mask_ai = ants.segmentation.otsu_segmentation(img_noise_ai, k=1)
-        signal_mask = signal_mask_ai.numpy() == 1
-        
-        denoised_ants_ai = ants.denoise_image(
-            image=img_noise_ai,
-            mask=signal_mask_ai,
-            noise_model='Rician',
-            shrink_factor=2,
-            p=1,
-            r=2
-        )
-        
-        img_denoised = denoised_ants_ai.numpy()
-        img_noise = img_noisy - img_denoised
-
-        # Local MAD noise sigma map estimation
-        # Scale MAD to sigma_n for Gaussian white noise approximation x 1.4826
-        abs_noise = np.abs(img_noise)
-        sigma_n = median_filter(abs_noise, size=5) * 1.4826
-
-        snr = np.zeros_like(img_noisy)
-        snr[signal_mask] = img_denoised[signal_mask] / (sigma_n[signal_mask] + 1e-12)
-
-        self.signal_mask = signal_mask
-        self.img_denoised = img_denoised
-        self.img_noise = img_noise
-        self.img_sigma_n_lpf = self.lpf(sigma_n, sigma_lpf=self.sigma_lpf)
-        self.img_snr_lpf = self.lpf(snr, sigma_lpf=self.sigma_lpf)
-
-    #
-    # Common methods
-    #
-        
+      
     def estimate(self, method:str='homomorphic'):
         """
         Run noise estimation on the loaded Nifti image.
@@ -226,29 +60,34 @@ class NoiseMap:
 
         # 3D scalar images only for now
         assert self.img.ndim == 3, "Input image must be 3D scalar"
-        img3d = self.img
+        img_noisy = self.img
 
         match method.lower():
             case 'homomorphic':
                 # Run homomorphic Rician noise estimation
-                self.rice_homomorf_est(img3d)
+                img_denoised, img_noise, img_sigma, img_snr, signal_mask = rice_homomorphic_est(img_noisy)
+                self.img_denoised = img_denoised
+                self.img_noise = img_noise
+                self.img_sigma_n_lpf = img_sigma
+                self.img_snr_lpf = img_snr
+                self.signal_mask = signal_mask
             case 'anlm':
                 # Run ANLM denoising and noise estimation
-                self.anlm_denoise(img3d)
+                img_denoised, img_noise, img_sigma, img_snr, signal_mask = anlm_est(img_noisy)
+                self.img_denoised = img_denoised
+                self.img_noise = img_noise
+                self.img_sigma_n_lpf = img_sigma
+                self.img_snr_lpf = img_snr
+                self.signal_mask = signal_mask
+            case 'asm':
+                # Run ASM denoising and noise estimation
+                img_denoised, img_noise, img_sigma, sigma_mad = asm_est(img_noisy)
+                self.img_denoised = img_denoised
+                self.img_noise = img_noise
+                self.img_sigma_n_lpf = img_sigma
+                self.signal_mask = img_noisy > np.max(img_noisy) * 0.05
             case _:
                 raise ValueError(f"Unknown estimation method: {method}")
-            
-    
-    def lpf(self, img: np.ndarray, sigma_lpf: float=5.0) -> np.ndarray:
-        """
-        Apply low-pass Gaussian filter to a numpy image
-        Set Gaussian sigma with self.sigma_lpf
-
-        img: input image (3D array)
-
-        Returns: filtered image
-        """
-        return gaussian_filter(img, sigma=sigma_lpf)
 
     def save_maps(self, out_dir=None):
         """

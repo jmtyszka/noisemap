@@ -8,9 +8,15 @@ def main():
     parser.add_argument("-m", "--method", type=str, default='homomorphic', help="Estimation method")
     args = parser.parse_args()
 
-    mapper = NoiseMap(args.input)
-    mapper.estimate(method=args.method)
-    mapper.save_maps(out_dir=args.outdir)
+    # Splash text
+    print("\nNoisemap: Rician MRI Noise Map Estimation")
+    print("-" * 40)
+    print(f"Input image: {args.input}")
+    print(f"Estimation method: {args.method}\n")
+
+    mapper = NoiseMap(args.input, method=args.method, out_dir=args.outdir)
+    mapper.estimate()
+    mapper.save_maps()
 
 if __name__ == "__main__":
     main()

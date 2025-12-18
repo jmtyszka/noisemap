@@ -5,6 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "noisemap"
 version = "2025.12.17"
+license = { text = "MIT" }
 description = "Noise estimation for 3D magnitude MR images in Python"
 authors = [
     { name = "Mike Tyszka", email = "jmt@caltech.edu" }
@@ -20,6 +21,9 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/jmtyszka/noisemap"
 Repository = "https://github.com/jmtyszka/noisemap"
+
+[tool.setuptools.packages.find]
+exclude = ["notebooks*"]
 
 [project.scripts]
 noisemap = "noisemap.__main__:main"

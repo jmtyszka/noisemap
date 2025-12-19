@@ -11,7 +11,7 @@ import numpy as np
 from scipy.special import iv
 from scipy.special import digamma as psi
 
-from .utils import (fourier_lpf, conv3d)
+from .utils import (lpf, conv3d)
 
 def approxI1_I0(z):
     """
@@ -113,7 +113,7 @@ def rice_homomorphic_est(img_noisy: np.ndarray):
     """
     Homomorphic Rician noise estimation adapted for 3D scalar magnitude data
     Use the following original MATLAB parameters:
-    1. Low pass filter Gaussian sigma in Fourier domain = 4.8 voxels
+    1. Low pass filter Gaussian. sigma in Fourier domain = 4.8 voxels
     2. Estimate SNR from data using EM (niter = 10, ksize = 3) [SNR=0, Modo 2]
     
     PARAMETER: img_noisy: 3D noisy magnitude data
@@ -128,7 +128,8 @@ def rice_homomorphic_est(img_noisy: np.ndarray):
     digamma_sf = np.sqrt(2.0) * np.exp(-psi(1) / 2.0)
 
     # Low pass filter Gaussian sigma in the frequency domain in voxels
-    sigma_freq = 4.8
+    sigma_freq = 4.8  # From original MATLAB default (frequency domain voxels)
+    sigma_spat = 1.0 / (2.0 * np.pi * sigma_freq) * img_noisy.shape[0]  # Assuming isotropic voxels
 
     # EM parameters
     em_niter = 10
@@ -181,7 +182,7 @@ def rice_homomorphic_est(img_noisy: np.ndarray):
 
     # LPF2=lpf((lRn),LPF);
     # LPF2 -> lRn_rice_lpf
-    lRn_rice_lpf = fourier_lpf(lRn_rice, sigma_freq=sigma_freq)
+    lRn_rice_lpf = lpf(lRn_rice, sigma_spat=sigma_spat)
 
     # Fc1=correct_rice_gauss(SNR);
     print("  Applying Rician-Gaussian correction ...")
@@ -193,8 +194,9 @@ def rice_homomorphic_est(img_noisy: np.ndarray):
 
     # LPF1=lpf((LPF1),LPF+2,2);
     # Original MATLAB increase frequency domain sigma by 2 for second LPF
+    # Just reduce the second LPF spatial sigma by half
     # LPF1 -> lRn_rice_corrected_lpf
-    lRn_rice_corrected_lpf = fourier_lpf(lRn_rice_corrected, sigma_freq=sigma_freq + 2.0)
+    lRn_rice_corrected_lpf = lpf(lRn_rice_corrected, sigma_spat=sigma_spat * 0.5)
 
     # Mapa1=exp(LPF1);
     # Mapa1 -> Rn_rice_corrected_lpf

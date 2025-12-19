@@ -1,18 +1,27 @@
 """
-Three denoising/noise estimation algorithms are implemented for 3D magnitude MR images.
-For denoising algorithms, the residual difference between noisy and denoised images is used to
-estimate local noise sigma maps and SNR maps using the local MAD approximation for Gaussian white noise.
-Rician noise modeling and corrections are used where possible.
+Three denoising/noise estimation algorithms are implemented for 3D scalar magnitude MR images.
+For denoising algorithms, the residual difference between noisy and denoised images is used to estimate
+the spatially varying noise sigma map using Rician corrections where applicable. ANLM and ASCM estimate noise within
+a signal mask created via multilevel Otsu thresholding.
 
-1. Homomorphic noise estimation for SENSE MR images in Python.
-Based on the method of Aja-Fernandez et al., "Noise estimation in SENSE MR images: The homomorphic approach", IEEE TMI, 2009.
+1. Homomorphic estimation for Rician spatially varying noise
+Ported to python from the 2D MATLAB implementation in Matlab Central 
+  Aja-Fernández, S., Pieciak, T. & Vegas-Sánchez-Ferrero, G.
+  Spatially variant noise estimation in MRI: a homomorphic approach.
+  Med. Image Anal. 20, 184–197 (2015).
 
-2. Adaptive Non-Local Means (ANLM) denoising for MR images.
-Based on the method of Manjon et al., "Adaptive non-local means denoising of MR images with spatially varying noise levels", JMRI, 2010.
 
-3. Adaptive Soft Matching (ASM) denoising for MR images.
-Based on the method of Pierrick Coupé, José V. Manjón, Montserrat Robles, and Louis D. Collins. Adaptive Multiresolution Non-Local Means
-Filter for 3D MR Image Denoising. IET Image Processing, 6(5):558–568, July 2012. implemented in the DiPy package.
+2. Adaptive Non-Local Means (ANLM) denoising/noise estimation for MR images.
+Based on the ANLM method implemented by ANTsPy (https://antspy.readthedocs.io/en/latest/)
+  J. V. Manjon, P. Coupe, Luis Marti-Bonmati, D. L. Collins, and M. Robles.
+  Adaptive Non-Local Means Denoising of MR Images With Spatially Varying Noise Levels
+  Journal of Magnetic Resonance Imaging, 31:192-203, June 2010.
+
+3. Adaptive Soft Coefficient Matching (ASCM) denoising for MR images.
+Based on the example code from the DiPy package
+  Pierrick Coupé, José V. Manjón, Montserrat Robles, and Louis D. Collins.
+  Adaptive Multiresolution Non-Local Means Filter for 3D MR Image Denoising.
+  IET Image Processing, 6(5):558–568, July 2012.
 """
 
 import os
@@ -25,7 +34,7 @@ import ants
 
 from .homomorphic import rice_homomorphic_est
 from .anlm import anlm_est
-from .asm import asm_est
+from .ascm import ascm_est
 
 class NoiseMap:
 
@@ -46,7 +55,7 @@ class NoiseMap:
         self.img_snrmap = None
         
         # Default estimation method
-        if method in ['homomorphic', 'anlm', 'asm']:
+        if method in ['homomorphic', 'anlm', 'ascm']:
             self.estimation_method = method
         else:
             self.estimation_method = 'homomorphic'
@@ -89,9 +98,9 @@ class NoiseMap:
                 self.img_sigmamap = img_sigmamap
                 self.img_snrmap = img_snrmap
                 self.signal_mask = signal_mask
-            case 'asm':
-                # Run ASM denoising and noise estimation
-                img_denoised, img_noise, img_sigmamap, img_snrmap, signal_mask = asm_est(img_noisy)
+            case 'ascm':
+                # Run ASCM denoising and noise estimation
+                img_denoised, img_noise, img_sigmamap, img_snrmap, signal_mask = ascm_est(img_noisy)
                 self.img_denoised = img_denoised
                 self.img_noise = img_noise
                 self.img_sigmamap = img_sigmamap

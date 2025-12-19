@@ -1,5 +1,4 @@
 import numpy as np
-import ants
 from scipy.ndimage import (gaussian_filter, median_filter, convolve)    
 import skimage.filters as skf
     
@@ -14,75 +13,6 @@ def lpf(img: np.ndarray, sigma_spat: float=10.0) -> np.ndarray:
     """
     return gaussian_filter(img, sigma=sigma_spat)
 
-def fourier_lpf(img: np.ndarray, sigma_freq: float=5.0) -> np.ndarray:
-    """
-    Frequency domain low-pass Gaussian filter of a 3D numpy array
-    - reimplement lpf MATLAB function from homomorphic_sense_tbx with MODO=1
-
-    img: input image (3D array)
-    sigma_freq: frequency domain Gaussian sigma in voxels
-
-    Returns: filtered image
-
-    ORIGINAL MATLAB CODE:
-
-    if MODO==1
-        [Mx,My]=size(I);
-        h=fspecial('gaussian',size(I),sigma);
-        h=h./max(h(:));
-
-        if (Mx==1)||(My==1) %1D
-            lRnF=fftshift(fft(I));
-            %Filtering
-            lRnF2=lRnF.*h;
-            If=real(ifft(fftshift(lRnF2)));
-
-        else %2D
-            lRnF=fftshift(fft2(I));
-            %Filtering
-            lRnF2=lRnF.*h;
-            If=real(ifft2(fftshift(lRnF2)));
-        end
-
-        return np.real(img_filtered)
-    """
-
-    # Create Gaussian kernel in frequency domain
-    size = img.shape
-    h = fspecial_gaussian_3d(size, sigma_freq)
-    h = h / np.max(h)
-
-    # FFT of input image
-    img_fft = np.fft.fftn(img)
-    img_fft_shifted = np.fft.fftshift(img_fft)
-
-    # Filtering in frequency domain
-    img_fft_filtered = img_fft_shifted * h
-
-    # Inverse FFT to get filtered image
-    img_ifft_shifted = np.fft.ifftshift(img_fft_filtered)
-    img_filtered = np.fft.ifftn(img_ifft_shifted)
-
-    return np.real(img_filtered)
-
-def fspecial_gaussian_3d(size, sigma):
-    """
-    Create a 3D Gaussian kernel similar to MATLAB's fspecial('gaussian', ...)
-
-    size: tuple of 3 ints, size of the kernel
-    sigma: standard deviation of the Gaussian
-
-    Returns: 3D numpy array representing the Gaussian kernel
-    """
-    m, n, o = [(ss - 1) / 2 for ss in size]
-    y, x, z = np.ogrid[-m:m+1, -n:n+1, -o:o+1]
-    h = np.exp(-(x*x + y*y + z*z) / (2 * sigma * sigma))
-    h[h < np.finfo(h.dtype).eps * h.max()] = 0
-    sumh = h.sum()
-    if sumh != 0:
-        h /= sumh
-    return h
-
 def conv3d(h, img):
     """
     3D convolution with nearest edge padding
@@ -93,19 +23,47 @@ def conv3d(h, img):
     """
     return convolve(img, h, mode='nearest')
 
-def noise_sigma_map(noise_img: np.ndarray, signal_mask: np.ndarray) -> np.ndarray:
+def snr_map(
+        img_noisy: np.ndarray,
+        img_denoised: np.ndarray,
+        signal_mask: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    NOTE : This function takes as input the residual noise image (img_noisy - img_denoised)
-    Create a local noise sigma map using MAD robust estimator on the residual image
-    Approximate noise residual distribution as N(0, sigma_n)
+    Estimate local noise sigma from the noisy and denoised images within the signal mask.
+    Assumes a Rician noise model, so the raw sigma should be corrected for SNR bias.
+
+    img_noisy: input noisy image (3D array)
+    img_denoised: input denoised image (3D array)
+    signal_mask: boolean signal mask (3D array)
     """
 
-    noise_img = noise_img * signal_mask
-    sigma_img = median_filter(np.abs(noise_img), size=5) / np.sqrt(2 * np.log(2))
+    # Division-by-zero insurance
+    small_float = 1e-12
 
-    return sigma_img
+    # Check for empty signal mask
+    if np.sum(signal_mask) == 0:
+        signal_mask, mask_thresh, percent_coverage = signal_mask_otsu(img_denoised)
+        print(f"Warning: Empty signal mask provided")
+        print(f"Generated new mask with threshold {mask_thresh:0.2f}, coverage {percent_coverage:0.2f} %")
 
-def signal_mask_otsu(img_noisy: np.ndarray, nclasses: int=4):
+    # Computer signed noise residual which should be Rician distributed
+    img_noise = (img_noisy - img_denoised) * signal_mask
+    
+    # Kernel size for median filtering
+    k = 5
+
+    # Calculate the local median noise residual over the whole image within a moving kernel
+    img_noise_medfilt = median_filter(np.abs(img_noise), size=k)
+
+    # Iterative SNR map calculation, adjusting the noise sigma estimate from the median residual
+    # using the Rician median relationship: median = sigma * sqrt(ln(4))
+    img_sigmamap = img_noise_medfilt / np.sqrt(np.log(4))
+
+    # Image SNR map estimation within signal mask and division-by-zero safety
+    img_snrmap = img_denoised / (img_sigmamap + small_float) * signal_mask
+
+    return img_snrmap, img_sigmamap, img_noise
+
+def signal_mask_otsu(img_noisy: np.ndarray, nclasses: int=4) -> tuple[np.ndarray, float, float]:
     """
     Create a signal mask using multilevel Otsu thresholding (k=4) via ANTsPy.
     Final signal mask is all non-zero labels.
@@ -114,18 +72,23 @@ def signal_mask_otsu(img_noisy: np.ndarray, nclasses: int=4):
     nclasses: number of classes for multilevel Otsu thresholding
 
     Returns: signal_mask: signal mask (boolean 3D array)
-    Returns: thresh: threshold value used for masking
+    Returns: thresh: threshold value used for mask generation
     """
 
+    # Sample non-zero voxels for Otsu thresholding
     t1_sample = img_noisy[img_noisy > 0].flatten()
 
     # Multilevel Otsu thresholds
     otsu_thresh = skf.threshold_multiotsu(t1_sample, classes=nclasses)
-    thresh = otsu_thresh[0]
+    mask_thresh = otsu_thresh[0]
 
-    signal_mask = img_noisy >= thresh
+    # Create signal mask
+    signal_mask = img_noisy >= mask_thresh
 
-    return signal_mask, thresh
+    # Compute percent coverage
+    percent_coverage = 100.0 * np.sum(signal_mask) / signal_mask.size
+
+    return signal_mask, mask_thresh, percent_coverage
 
 def airspace_noise_est(img_noisy: np.ndarray):
     """
@@ -137,7 +100,8 @@ def airspace_noise_est(img_noisy: np.ndarray):
     Returns: estimated noise sigma (scalar)
     """
 
-    signal_mask, _ = signal_mask_otsu(img_noisy)
+    signal_mask, mask_thresh, percent_coverage = signal_mask_otsu(img_noisy)
+    print(f"Airspace mask threshold {mask_thresh:0.2f}, coverage {percent_coverage:0.2f} %")
 
     noise_sample = img_noisy[~signal_mask].flatten()
     median_noise = np.median(noise_sample)

@@ -7,38 +7,36 @@ import ants
 import numpy as np
 from scipy.ndimage import median_filter
 
-from .utils import lpf, signal_mask_otsu, noise_sigma_map
+from .utils import lpf, signal_mask_otsu, snr_map
 
 def anlm_est(img_noisy: np.ndarray, sigma_lpf: float=10.0):
 
+    # Division-by-zero insurance
+    small_float = 1e-12
+
     print("\nRunning ANLM Rician noise estimation ...")
 
-    signal_mask, _ = signal_mask_otsu(img_noisy)
-    signal_mask_ai = ants.from_numpy(signal_mask.astype(np.uint8))
+    signal_mask, mask_thresh, percent_coverage = signal_mask_otsu(img_noisy)
+    print(f"Airspace mask threshold {mask_thresh:0.2f}, coverage {percent_coverage:0.2f} %")
 
-    img_noise_ai = ants.from_numpy(img_noisy)
+    # Convert to ANTs image for ANLM denoising    
+    img_noisy_ai = ants.from_numpy(img_noisy)
+    signal_mask_ai = ants.from_numpy(signal_mask.astype(np.uint8))
     
-    print("  ANLM denoising ...")
-    denoised_ants_ai = ants.denoise_image(
-        image=img_noise_ai,
+    print("ANLM denoising ...")
+    img_denoised_ai = ants.denoise_image(
+        image=img_noisy_ai,
         mask=signal_mask_ai,
         noise_model='Rician',
-        shrink_factor=2,
         p=1,
         r=2
     )
     
-    img_denoised = denoised_ants_ai.numpy()
-    img_noise = img_noisy - img_denoised
+    # Extract denoised image as numpy array
+    img_denoised = img_denoised_ai.numpy()
 
-    # Noise sigma map estimation
-    print("  Estimating noise sigma map ...")
-    img_sigmamap = noise_sigma_map(img_noise, signal_mask)
-
-    # Low pass filter sigma map
-    img_sigmamap = lpf(img_sigmamap, sigma_spat=sigma_lpf)
-
-    img_snrmap = np.zeros_like(img_noisy)
-    img_snrmap[signal_mask] = img_denoised[signal_mask] / (img_sigmamap[signal_mask] + 1e-12)
+    # Estimate noise sigma and SNR maps from noisy and denoised images
+    print("Estimating noise sigma and SNR maps...")
+    img_snrmap, img_sigmamap, img_noise = snr_map(img_noisy, img_denoised, signal_mask)
 
     return img_denoised, img_noise, img_sigmamap, img_snrmap, signal_mask

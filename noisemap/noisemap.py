@@ -38,7 +38,7 @@ from .ascm import ascm_est
 
 class NoiseMap:
 
-    def __init__(self, nifti_path, method='homomorphic', out_dir=None):
+    def __init__(self, nifti_path, method='anlm', out_dir=None):
         """
         Initialize with a Nifti image path. Loads the image data as a numpy array.
         """
@@ -55,10 +55,10 @@ class NoiseMap:
         self.img_snrmap = None
         
         # Default estimation method
-        if method in ['homomorphic', 'anlm', 'ascm']:
+        if method in ['anlm', 'ascm', 'homomorphic']:
             self.estimation_method = method
         else:
-            self.estimation_method = 'homomorphic'
+            self.estimation_method = 'anlm'
 
         if out_dir is None:
             # Save in same directory as input with method-specific subdirectory
@@ -82,14 +82,6 @@ class NoiseMap:
         img_noisy = self.img
 
         match self.estimation_method.lower():
-            case 'homomorphic':
-                # Run homomorphic Rician noise estimation
-                img_denoised, img_noise, img_sigmamap, img_snrmap, signal_mask = rice_homomorphic_est(img_noisy)
-                self.img_denoised = img_denoised
-                self.img_noise = img_noise
-                self.img_sigmamap = img_sigmamap
-                self.img_snrmap = img_snrmap
-                self.signal_mask = signal_mask
             case 'anlm':
                 # Run ANLM denoising and noise estimation
                 img_denoised, img_noise, img_sigmamap, img_snrmap, signal_mask = anlm_est(img_noisy)
@@ -101,6 +93,14 @@ class NoiseMap:
             case 'ascm':
                 # Run ASCM denoising and noise estimation
                 img_denoised, img_noise, img_sigmamap, img_snrmap, signal_mask = ascm_est(img_noisy)
+                self.img_denoised = img_denoised
+                self.img_noise = img_noise
+                self.img_sigmamap = img_sigmamap
+                self.img_snrmap = img_snrmap
+                self.signal_mask = signal_mask
+            case 'homomorphic':
+                # Run homomorphic Rician noise estimation
+                img_denoised, img_noise, img_sigmamap, img_snrmap, signal_mask = rice_homomorphic_est(img_noisy)
                 self.img_denoised = img_denoised
                 self.img_noise = img_noise
                 self.img_sigmamap = img_sigmamap

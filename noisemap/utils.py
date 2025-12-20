@@ -45,21 +45,36 @@ def snr_map(
         print(f"Warning: Empty signal mask provided")
         print(f"Generated new mask with threshold {mask_thresh:0.2f}, coverage {percent_coverage:0.2f} %")
 
-    # Computer signed noise residual which should be Rician distributed
+    # Signed noise residual within signal mask
     img_noise = (img_noisy - img_denoised) * signal_mask
     
+    # Estimate local noise sigma from local median of absolute noise residuals
+    # Use pre-simulated lookup table for SNR-dependent median to sigma conversion
+
+    snr_lut = [0.00000000, 0.40816327, 0.81632653, 1.02040816, 1.32653061, 2.14285714, 5.0000000]
+    mad_lut = [1.17743669, 0.81755008, 0.59415234, 0.58440642, 0.60464279, 0.65227609, 0.6716113]
+
     # Kernel size for median filtering
     k = 5
 
-    # Calculate the local median noise residual over the whole image within a moving kernel
+    # Median filter absolute noise residuals to estimate local noise level
     img_noise_medfilt = median_filter(np.abs(img_noise), size=k)
 
-    # Iterative SNR map calculation, adjusting the noise sigma estimate from the median residual
-    # using the Rician median relationship: median = sigma * sqrt(ln(4))
-    img_sigmamap = img_noise_medfilt / np.sqrt(np.log(4))
+    # Initial sigma_n map estimation within signal mask using Gaussian (high SNR) assumption
+    img_sigmamap = img_noise_medfilt / 0.6745
+    img_snrmap = img_denoised / (img_sigmamap + 0.1) * signal_mask
 
-    # Image SNR map estimation within signal mask and division-by-zero safety
-    img_snrmap = img_denoised / (img_sigmamap + small_float) * signal_mask
+    # TODO: Implement SNR-dependent correction using lookup table and interpolation
+    # from scipy.interpolate import PchipInterpolator
+    # pchip_interp = PchipInterpolator(snr_lut, mad_lut, extrapolate=True)
+    # Iterative sigma and SNR map correction for Rician bias for SNR-depedent sigma/MAD factor
+    # n_iter = 3
+    # for it in range(n_iter):
+    #     img_sigmamap = img_noise_medfilt / 0.6745
+    #     # Limit correction to SNR < 5
+    #     correction_factors = pchip_interp(img_snrmap)
+    #     img_sigmamap = img_noise_medfilt / correction_factors
+    #     img_snrmap = img_denoised / (img_sigmamap + small_float) * signal_mask
 
     return img_snrmap, img_sigmamap, img_noise
 
@@ -93,7 +108,7 @@ def signal_mask_otsu(img_noisy: np.ndarray, nclasses: int=4) -> tuple[np.ndarray
 def airspace_noise_est(img_noisy: np.ndarray):
     """
     Magnitude of complex-valued Gaussian noise follows a Rayleigh distribution in signal-free regions.
-    Median of Rayleigh distribution is related to sigma_n by: median = sigma_n * sqrt(2 * log(2))
+    Median of Rayleigh distribution is related to sigma_n by: sigma_n = median / sqrt(2 * log(2))
 
     img_noisy: input noisy image (3D array)
 

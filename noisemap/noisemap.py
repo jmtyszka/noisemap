@@ -1,40 +1,22 @@
 """
-Three denoising/noise estimation algorithms are implemented for 3D scalar magnitude MR images.
+Adaptive Non-Local Means (ANLM) denoising/noise estimation for 3D scalar magnitude MR images.
 For denoising algorithms, the residual difference between noisy and denoised images is used to estimate
-the spatially varying noise sigma map using Rician corrections where applicable. ANLM and ASCM estimate noise within
+the spatially varying noise sigma map using Rician corrections where applicable. ANLM estimates noise within
 a signal mask created via multilevel Otsu thresholding.
 
-1. Homomorphic estimation for Rician spatially varying noise
-Ported to python from the 2D MATLAB implementation in Matlab Central 
-  Aja-Fernández, S., Pieciak, T. & Vegas-Sánchez-Ferrero, G.
-  Spatially variant noise estimation in MRI: a homomorphic approach.
-  Med. Image Anal. 20, 184–197 (2015).
-
-
-2. Adaptive Non-Local Means (ANLM) denoising/noise estimation for MR images.
 Based on the ANLM method implemented by ANTsPy (https://antspy.readthedocs.io/en/latest/)
-  J. V. Manjon, P. Coupe, Luis Marti-Bonmati, D. L. Collins, and M. Robles.
-  Adaptive Non-Local Means Denoising of MR Images With Spatially Varying Noise Levels
-  Journal of Magnetic Resonance Imaging, 31:192-203, June 2010.
-
-3. Adaptive Soft Coefficient Matching (ASCM) denoising for MR images.
-Based on the example code from the DiPy package
-  Pierrick Coupé, José V. Manjón, Montserrat Robles, and Louis D. Collins.
-  Adaptive Multiresolution Non-Local Means Filter for 3D MR Image Denoising.
-  IET Image Processing, 6(5):558–568, July 2012.
+    J. V. Manjon, P. Coupe, Luis Marti-Bonmati, D. L. Collins, and M. Robles.
+    Adaptive Non-Local Means Denoising of MR Images With Spatially Varying Noise Levels
+    Journal of Magnetic Resonance Imaging, 31:192-203, June 2010.
 """
+
 
 import os
 import os.path as op
-from networkx import sigma
 import numpy as np
-from scipy.special import iv
 import nibabel as nib
 import ants
-
-from .homomorphic import rice_homomorphic_est
 from .anlm import anlm_est
-from .ascm import ascm_est
 
 class NoiseMap:
 
@@ -55,7 +37,7 @@ class NoiseMap:
         self.img_snrmap = None
         
         # Default estimation method
-        if method in ['anlm', 'ascm', 'homomorphic']:
+        if method == 'anlm':
             self.estimation_method = method
         else:
             self.estimation_method = 'anlm'
@@ -81,33 +63,16 @@ class NoiseMap:
         assert (self.img.ndim == 3) & (self.img >= 0).all(), "Input image must be 3D scalar magnitude data"
         img_noisy = self.img
 
-        match self.estimation_method.lower():
-            case 'anlm':
-                # Run ANLM denoising and noise estimation
-                img_denoised, img_noise, img_sigmamap, img_snrmap, signal_mask = anlm_est(img_noisy)
-                self.img_denoised = img_denoised
-                self.img_noise = img_noise
-                self.img_sigmamap = img_sigmamap
-                self.img_snrmap = img_snrmap
-                self.signal_mask = signal_mask
-            case 'ascm':
-                # Run ASCM denoising and noise estimation
-                img_denoised, img_noise, img_sigmamap, img_snrmap, signal_mask = ascm_est(img_noisy)
-                self.img_denoised = img_denoised
-                self.img_noise = img_noise
-                self.img_sigmamap = img_sigmamap
-                self.img_snrmap = img_snrmap
-                self.signal_mask = signal_mask
-            case 'homomorphic':
-                # Run homomorphic Rician noise estimation
-                img_denoised, img_noise, img_sigmamap, img_snrmap, signal_mask = rice_homomorphic_est(img_noisy)
-                self.img_denoised = img_denoised
-                self.img_noise = img_noise
-                self.img_sigmamap = img_sigmamap
-                self.img_snrmap = img_snrmap
-                self.signal_mask = signal_mask
-            case _:
-                raise ValueError(f"Unknown estimation method: {self.estimation_method}")
+        if self.estimation_method == 'anlm':
+            # Run ANLM denoising and noise estimation
+            img_denoised, img_noise, img_sigmamap, img_snrmap, signal_mask = anlm_est(img_noisy)
+            self.img_denoised = img_denoised
+            self.img_noise = img_noise
+            self.img_sigmamap = img_sigmamap
+            self.img_snrmap = img_snrmap
+            self.signal_mask = signal_mask
+        else:
+            raise ValueError(f"Unknown estimation method: {self.estimation_method}")
 
     def save_maps(self):
         """

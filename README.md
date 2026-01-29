@@ -11,36 +11,22 @@ $ pip install .
 
 ## Usage
 ```
-$ noisemap -i <mag_image>.nii.gz -m <algorithm>
-# noisemap -i T1w.nii.gz -m anlm
+$ noisemap -i <mag_image>.nii.gz [-m <algorithm>]
+# noisemap -i T1w.nii.gz
 ```
-<algorithm> can be homomorphic, anlm or asm. An output folder will be created named <mag_image>_<algorithm>/
+Currently the default and only supported value for <algorithm> is "anlm" (Adaptive Non-Local Means). An output folder will be created named <mag_image>_anlm/
 containing the following (anlm output shown):
-```
-```
 
+
+```
 
 ## Algorithms
 
-### Global noise sigma estimate
-Spatial average noise sigma estimates assuming a Rayleigh (magnitude of N(0, sigma)) distribution
-Makes use of property of Rayleigh distribution: mode(|N(0, sigma)) = sigma
-Alternative to use of median(|N(0, sigma)) = sigma * 2 sqrt(2)
-
-
-### Aja-Fernández Homomorphic
-
-Extension of original 2D Matlab scripts (Matlab Central) to python with 3D support.
-
-#### References
-
-Aja-Fernández, S., Pieciak, T. & Vegas-Sánchez-Ferrero, G. Spatially variant noise estimation in MRI: a homomorphic approach. Med. Image Anal. 20, 184–197 (2015).
-
-https://www.mathworks.com/matlabcentral/fileexchange/48762-noise-estimator-for-sense-mri
-
-
 ### Adaptive Non-local Means (ANLM)
 
-Python wrapper for ANTs ImageDenoise function implemented in antspyx. Estimates noise residual from the original and denoised images within regions with signal support (Otsu threshold)
+Python wrapper for ANTs ImageDenoise function implemented in antspyx. Estimates noise residual from the original and denoised images within regions with signal support (Otsu threshold).
 
-### Adaptive soft
+Based on:
+J. V. Manjon, P. Coupe, Luis Marti-Bonmati, D. L. Collins, and M. Robles.
+Adaptive Non-Local Means Denoising of MR Images With Spatially Varying Noise Levels
+Journal of Magnetic Resonance Imaging, 31:192-203, June 2010.

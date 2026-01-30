@@ -17,6 +17,7 @@ $ noisemap -i <mag_image>.nii.gz [-m <algorithm>]
 Currently the default and only supported value for <algorithm> is "anlm" (Adaptive Non-Local Means). An output folder will be created named <mag_image>_anlm/
 containing the following (ANLM output shown):
 
+```
 noisemap_anlm/
 ├── T1w_denoised.nii.gz
 ├── T1w_mask.nii.gz
@@ -24,11 +25,11 @@ noisemap_anlm/
 ├── T1w_sigma.nii.gz
 └── T1w_snr.nii.gz
 
-_denoised : ANLM denoised version of original image
-_mask : signal/computation mask used during denoising
-_noise : residual noise image (original - denoised)
-_sigma : Local Gaussian noise sigma map estimated from _noise
-_snr : Voxel-wise SNR estimated from _denoised and _sigma
+_denoised : ANLM denoised version of original image  
+_mask : signal/computation mask used during denoising  
+_noise : residual noise image (original - denoised)  
+_sigma : Local Gaussian noise sigma map estimated from _noise  
+_snr : Voxel-wise SNR estimated from _denoised and _sigma  
 
 ```
 

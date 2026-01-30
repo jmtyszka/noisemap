@@ -15,8 +15,8 @@ import os
 import os.path as op
 import numpy as np
 import nibabel as nib
-import ants
 from .anlm import anlm_est
+from .utils import airspace_noise_est
 
 class NoiseMap:
 
@@ -63,6 +63,10 @@ class NoiseMap:
         assert (self.img.ndim == 3) & (self.img >= 0).all(), "Input image must be 3D scalar magnitude data"
         img_noisy = self.img
 
+        # Run airspace noise estimation for reference
+        sigma_n_airspace = airspace_noise_est(img_noisy)
+        print(f"\nEstimated airspace noise sigma: {sigma_n_airspace:0.4f}")
+
         if self.estimation_method == 'anlm':
             # Run ANLM denoising and noise estimation
             img_denoised, img_noise, img_sigmamap, img_snrmap, signal_mask = anlm_est(img_noisy)
@@ -84,6 +88,10 @@ class NoiseMap:
         - SNR map: *_snr.nii.gz
         - Signal mask (if available): *_mask.nii.gz
         """
+
+        assert self.img_denoised is not None, "Denoised image not available. Run estimate() first."
+
+        print(f"\nSaving results to {self.out_dir}")
 
         # Save denoised image
         denoised_nii = nib.Nifti1Image(self.img_denoised, affine=self.img_nii.affine, header=self.img_nii.header)

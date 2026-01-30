@@ -6,7 +6,7 @@
             "type": "debugpy",
             "request": "launch",
             "module": "noisemap",
-            "args": ["-i", "/Users/jmt/sandbox/noisemap/T1w_bias.nii.gz"],
+            "args": ["-i", "/Users/jmt/sandbox/noisemap/T1w.nii.gz"],
             "console": "integratedTerminal",
         }
     ]

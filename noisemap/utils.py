@@ -1,6 +1,8 @@
 import numpy as np
 from scipy.ndimage import (gaussian_filter, median_filter, convolve)    
+from scipy.interpolate import PchipInterpolator
 import skimage.filters as skf
+
     
 def lpf(img: np.ndarray, sigma_spat: float=10.0) -> np.ndarray:
     """
@@ -39,6 +41,9 @@ def snr_map(
     # Division-by-zero insurance
     small_float = 1e-12
 
+    # sigma to MAD scale factor for Gaussian distribution
+    sf = 0.6745
+
     # Check for empty signal mask
     if np.sum(signal_mask) == 0:
         signal_mask, mask_thresh, percent_coverage = signal_mask_otsu(img_denoised)
@@ -49,32 +54,62 @@ def snr_map(
     img_noise = (img_noisy - img_denoised) * signal_mask
     
     # Estimate local noise sigma from local median of absolute noise residuals
-    # Use pre-simulated lookup table for SNR-dependent median to sigma conversion
-
-    snr_lut = [0.00000000, 0.40816327, 0.81632653, 1.02040816, 1.32653061, 2.14285714, 5.0000000]
-    mad_lut = [1.17743669, 0.81755008, 0.59415234, 0.58440642, 0.60464279, 0.65227609, 0.6716113]
 
     # Kernel size for median filtering
-    k = 5
+    k = 5    
 
     # Median filter absolute noise residuals to estimate local noise level
+    # Note that noise_medfilt is always non-negative (absolute median)
+    print(f'Median filtering noise residual image with kernel size {k} ...')
+
     img_noise_medfilt = median_filter(np.abs(img_noise), size=k)
 
     # Initial sigma_n map estimation within signal mask using Gaussian (high SNR) assumption
-    img_sigmamap = img_noise_medfilt / 0.6745
-    img_snrmap = img_denoised / (img_sigmamap + 0.1) * signal_mask
+    img_sigmamap = img_noise_medfilt / sf
 
-    # TODO: Implement SNR-dependent correction using lookup table and interpolation
-    # from scipy.interpolate import PchipInterpolator
-    # pchip_interp = PchipInterpolator(snr_lut, mad_lut, extrapolate=True)
+    # Create a calculation mask combining the signal mask and positive sigma map values
+    gt0_mask = img_sigmamap > small_float
+    calc_mask = signal_mask & gt0_mask
+
+    # Compute SNR within the calculation mask
+    img_snrmap = img_denoised / (img_sigmamap + small_float) * calc_mask
+
+    # Use pre-simulated lookup table for SNR-dependent median to sigma conversion
+    snr_lut = [0.00000000, 0.40816327, 0.81632653, 1.02040816, 1.32653061, 2.14285714, 5.0000000]
+    mad_lut = [1.17743669, 0.81755008, 0.59415234, 0.58440642, 0.60464279, 0.65227609, 0.6716113]
+
+    # Implement SNR-dependent correction to estimated sigma map using lookup table and interpolation
+    # PCHIP interpolation for smooth monotonic mapping
+    # Out-of-bounds values are not extrapolated, but set to NaN
+    pchip_interp = PchipInterpolator(snr_lut, mad_lut, extrapolate=False)
+
     # Iterative sigma and SNR map correction for Rician bias for SNR-depedent sigma/MAD factor
-    # n_iter = 3
-    # for it in range(n_iter):
-    #     img_sigmamap = img_noise_medfilt / 0.6745
-    #     # Limit correction to SNR < 5
-    #     correction_factors = pchip_interp(img_snrmap)
-    #     img_sigmamap = img_noise_medfilt / correction_factors
-    #     img_snrmap = img_denoised / (img_sigmamap + small_float) * signal_mask
+    n_iter = 3
+
+    print(f"\nPerforming {n_iter} iterations of SNR map correction for Rician bias ...")
+
+    img_snrmap_orig = img_snrmap.copy()
+
+    for it in range(n_iter):
+
+        correction_factors = pchip_interp(img_snrmap)
+
+        # Replace NaN correction factors (out-of-bounds SNR) with high-SNR limit (0.6745)
+        correction_factors = np.where(np.isnan(correction_factors), sf, correction_factors)
+
+        # Correct sigma map and recompute SNR map
+        img_sigmamap = img_noise_medfilt / correction_factors
+
+        gt0_mask = img_sigmamap > small_float
+        calc_mask = signal_mask & gt0_mask
+
+        # Compute SNR within the calculation mask
+        img_snrmap = img_denoised / (img_sigmamap + small_float) * calc_mask
+
+    print(f"SNR map correction completed.")
+
+    diff = np.abs(img_snrmap - img_snrmap_orig)
+    print(f"SNR map change after final iteration: min {np.min(diff[calc_mask]) :0.4f}, max {np.max(diff[calc_mask]) :0.4f}")
 
     return img_snrmap, img_sigmamap, img_noise
 
